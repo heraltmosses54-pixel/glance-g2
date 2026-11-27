@@ -173,10 +173,28 @@ function watchlistPage(): {
         xPosition: 0,
         yPosition: 0,
         width: 576,
-        height: 30,
+        // v2.1.1: 36px, not 30. The firmware's line slot is ~27px and
+        // top-anchored, so in a 30px band the glyphs (y+12..y+27) ended
+        // 1px above the bottom border — bottom-hugging, as the owner
+        // spotted. At 36px the glyphs keep the same offset from the
+        // top and gain ~7px of air below (10px above): centred within
+        // 1.5px, and clearly clear of both borders. 36 (not 40) is
+        // the height that still leaves the list 212px — exactly
+        // 5 x 40px rows — so the list rows stay uniform; at 40px
+        // bands the list shrank to 204 and the host squeezed the
+        // middle row to 32px. See compare-clarity.md.
+        // v2.1.1 (centering, second half): padding 2, not 4. The
+        // firmware anchors the line slot to the padded content top,
+        // so less top padding lifts the glyphs: at padding 4 the
+        // glyphs sat at y+12..y+27 (10px air above, 6px below the
+        // 36px band); at padding 2 they should sit at y+10..y+25
+        // (8px above, 8px below — centred). Verified by measurement
+        // in the sim (see compare-clarity.md); if a future SDK
+        // changes this anchoring, re-measure rather than assuming.
+        height: 36,
         borderWidth: 2,
         borderColor: 5,
-        paddingLength: 4,
+        paddingLength: 2,
         containerID: TEXT_ID,
         containerName: 'watchlist-header',
         content: `GLANCE  ${fmtClock()}  ${watchTag()}`,
@@ -184,12 +202,15 @@ function watchlistPage(): {
       }),
       new TextContainerProperty({
         xPosition: 0,
-        yPosition: 258,
+        yPosition: 252,
         width: 576,
-        height: 30,
+        // Same 30 -> 36 fix as the header: the footer text sat on its
+        // bottom border for the same reason (and the same padding 2
+        // centring as the header).
+        height: 36,
         borderWidth: 2,
         borderColor: 5,
-        paddingLength: 4,
+        paddingLength: 2,
         containerID: TEXT_ID + 10,
         containerName: 'watchlist-footer',
         content: 'Tap: open coin',
@@ -199,9 +220,12 @@ function watchlistPage(): {
     listObject: [
       new ListContainerProperty({
         xPosition: 0,
-        yPosition: 32,
+        yPosition: 38,
         width: 576,
-        height: 224,
+        // 212 = 288 - 36 (header) - 36 (footer) - 2*2 (gaps). Exactly
+        // 5 x 40px rows (inner 200), so the host keeps the uniform
+        // 40px pitch it used in v2.1 — no squeezed middle row.
+        height: 212,
         borderWidth: 2,
         borderColor: 5,
         paddingLength: 4,

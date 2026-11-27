@@ -2,3 +2,5 @@ node_modules
 dist
 *.ehpk
 .DS_Store
+compare/
+demo-frames/

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Record the Glance demo video in the Even Hub simulator.
+# Record the Glance v2 demo video in the Even Hub simulator.
 # Runs everything under Xvfb, drives the app through the simulator's
 # HTTP automation plane, and records the virtual screen with ffmpeg.
 #
-# Usage: ./demo-record.sh            (writes demo.mp4, ~60-75s)
+# Usage: ./demo-record.sh            (writes demo.mp4, ~85s)
 # Requires: Xvfb, ffmpeg, the built app (npm run build already done).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -36,7 +36,12 @@ VITE_PID=$!
 sleep 3
 curl -s -o /dev/null --max-time 10 http://127.0.0.1:5173/ || { echo "vite did not come up"; exit 1; }
 
-# 3. Simulator with the automation plane
+# 3. Fresh state: wipe the simulator profile so the demo starts with a
+# clean $1,000 paper portfolio and no alerts (a previous run's state
+# would change what the alerts list shows and break the scripted taps).
+rm -rf "$HOME/.local/share/com.evenrealities.evenhub-simulator"
+
+# 4. Simulator with the automation plane
 evenhub-simulator http://127.0.0.1:5173 --automation-port $SIM_PORT >/tmp/sim.log 2>&1 &
 SIM_PID=$!
 for i in $(seq 1 30); do
@@ -79,26 +84,46 @@ sleep 2
 input() { curl -s -X POST http://127.0.0.1:$SIM_PORT/api/input -H 'Content-Type: application/json' -d "{\"action\":\"$1\"}" >/dev/null; }
 
 # Demo script (mirrors README):
-#  0:00-0:08  BTC home (live price)
+#  0:00-0:08  Watchlist home (5 coins + portfolio + alerts, live prices)
 sleep 8
-#  0:08  tap -> ETH
+#  tap -> BTC detail
 input click; sleep 4
-#  tap -> SOL
+#  tap -> ETH detail
 input click; sleep 4
-#  tap -> back to BTC
+#  tap -> SOL detail
 input click; sleep 4
-#  scroll down -> actions list
-input down; sleep 4
-#  click first item -> Buy $25 BTC (paper) -> confirm screen
+#  tap -> XRP detail
+input click; sleep 4
+#  scroll up -> watchlist
+input up; sleep 4
+#  scroll down x5 -> Portfolio row, tap to open
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
+input click; sleep 5
+#  tap -> back to watchlist
+input click; sleep 3
+#  scroll down x1 -> Alerts row, tap to open the alerts list
+input down; sleep 1
+input click; sleep 4
+#  tap -> back to watchlist
+input click; sleep 3
+#  scroll down x1 (wraps to BTC), tap -> BTC detail
+input down; sleep 1
+input click; sleep 4
+#  scroll down -> actions list, click first item -> Buy $25 BTC (paper) -> confirm
+input down; sleep 3
 input click; sleep 4
 #  tap again -> confirm the trade, back home with the position
 input click; sleep 5
-#  scroll down -> actions again, pick "Alert above +5%" (3rd item: down, down, click)
+#  scroll down -> actions again, pick "Alert above +1%" (3rd item: down, down, click)
 input down; sleep 3
 input down; sleep 1
 input down; sleep 1
 input click; sleep 5
-#  hold the final home screen (with position + armed alert)
+#  hold the final home screen (with position + armed +1% alert)
 sleep 8
 
 echo "--- done, stopping ffmpeg ---"

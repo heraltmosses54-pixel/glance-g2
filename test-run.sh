@@ -26,6 +26,12 @@ PIDS="$PIDS $!"
 sleep 3
 curl -s --max-time 10 http://127.0.0.1:5173/ >/dev/null || { echo "vite did not come up"; cat /tmp/vite.log | tail -5; exit 1; }
 
+# Fresh state every run: the simulator persists the WebView localStorage
+# and bridge storage in its profile dir, so a previous run's position /
+# alerts would change what the alerts list shows and break the flow.
+# Wiping the profile is safe — the simulator recreates it on launch.
+rm -rf "$HOME/.local/share/com.evenrealities.evenhub-simulator"
+
 evenhub-simulator http://127.0.0.1:5173 --automation-port $SIM_PORT >/tmp/sim.log 2>&1 &
 PIDS="$PIDS $!"
 ok=0

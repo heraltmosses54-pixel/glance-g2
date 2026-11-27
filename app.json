@@ -1,0 +1,1 @@
+{"edition":"202601","entrypoint":"index.html","min_sdk_version":"0.0.10","name":"Glance","package_id":"id.mosses.glance","permissions":[{"desc":"Live prices from Coinbase public market data (no key, no account)","name":"network","whitelist":["https://api.coinbase.com","https://api.exchange.coinbase.com"]}],"supported_languages":["en"],"version":"0.1.0"}

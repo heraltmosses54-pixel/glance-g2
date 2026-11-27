@@ -4,6 +4,16 @@
 set -u
 cd "$(dirname "$0")"
 
+# Pre-flight: a stale simulator or Vite from an earlier run would
+# silently answer on these ports (the ping/curl checks cannot tell a
+# stale instance from a fresh one) and the test would then run
+# against the OLD app with leftover state. Fail loudly instead.
+for p in 5173 9898; do
+  if ss -tln 2>/dev/null | grep -q ":$p "; then
+    echo "port $p is already in use — kill the stale simulator/Vite first (ps aux | grep -E 'evenhub|Xvfb|vite')"; exit 1
+  fi
+done
+
 DISPLAY_NUM=99
 export DISPLAY=:$DISPLAY_NUM
 XVFB_RES=1280x800x24
@@ -14,6 +24,11 @@ cleanup() {
   for p in $PIDS; do kill "$p" 2>/dev/null || true; done
   sleep 1
   for p in $PIDS; do kill -9 "$p" 2>/dev/null || true; done
+  # npm run dev spawns sh -> node children that outlive the npm PID;
+  # kill them by pattern too, or they accumulate and steal the ports.
+  pkill -f "evenhub-simulator.*--automation-port $SIM_PORT" 2>/dev/null || true
+  pkill -f "Xvfb :$DISPLAY_NUM" 2>/dev/null || true
+  pkill -f "vite.*--port 5173" 2>/dev/null || true
 }
 trap cleanup EXIT
 

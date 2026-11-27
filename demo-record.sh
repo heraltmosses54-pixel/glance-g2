@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record the Glance v2 demo video in the Even Hub simulator.
+# Record the Glance v2.1 demo video in the Even Hub simulator.
 # Runs everything under Xvfb, drives the app through the simulator's
 # HTTP automation plane, and records the virtual screen with ffmpeg.
 #
@@ -7,6 +7,16 @@
 # Requires: Xvfb, ffmpeg, the built app (npm run build already done).
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# Pre-flight: a stale simulator or Vite from an earlier run would
+# silently answer on these ports (the demo's ping/curl checks cannot
+# tell a stale instance from a fresh one) and the demo would then
+# drive the OLD app with leftover state. Fail loudly instead.
+for p in 5173 9898; do
+  if ss -tln 2>/dev/null | grep -q ":$p "; then
+    echo "port $p is already in use — kill the stale simulator/Vite first (ps aux | grep -E 'evenhub|Xvfb|vite')"; exit 1
+  fi
+done
 
 DISPLAY_NUM=99
 export DISPLAY=:$DISPLAY_NUM
@@ -22,6 +32,11 @@ cleanup() {
   kill $VITE_PID 2>/dev/null || true
   kill $XVFB_PID 2>/dev/null || true
   wait 2>/dev/null || true
+  # npm run dev spawns sh -> node children that outlive the npm PID;
+  # kill them by pattern too, or they accumulate and steal the ports.
+  pkill -f "evenhub-simulator.*--automation-port $SIM_PORT" 2>/dev/null || true
+  pkill -f "Xvfb :$DISPLAY_NUM" 2>/dev/null || true
+  pkill -f "vite.*--port 5173" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -84,7 +99,7 @@ sleep 2
 input() { curl -s -X POST http://127.0.0.1:$SIM_PORT/api/input -H 'Content-Type: application/json' -d "{\"action\":\"$1\"}" >/dev/null; }
 
 # Demo script (mirrors README):
-#  0:00-0:08  Watchlist home (5 coins + portfolio + alerts, live prices)
+#  0:00-0:08  Watchlist home (5 coins, list focus box, live prices)
 sleep 8
 #  tap -> BTC detail
 input click; sleep 4
@@ -96,7 +111,9 @@ input click; sleep 4
 input click; sleep 4
 #  scroll up -> watchlist
 input up; sleep 4
-#  scroll down x5 -> Portfolio row, tap to open
+#  tap -> BTC detail, scroll down -> actions, down x5 -> Portfolio, tap
+input click; sleep 2
+input down; sleep 3
 input down; sleep 1
 input down; sleep 1
 input down; sleep 1
@@ -105,13 +122,19 @@ input down; sleep 1
 input click; sleep 5
 #  tap -> back to watchlist
 input click; sleep 3
-#  scroll down x1 -> Alerts row, tap to open the alerts list
+#  tap -> BTC detail, scroll down -> actions, down x6 -> Alerts, tap
+input click; sleep 2
+input down; sleep 3
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
+input down; sleep 1
 input down; sleep 1
 input click; sleep 4
 #  tap -> back to watchlist
 input click; sleep 3
-#  scroll down x1 (wraps to BTC), tap -> BTC detail
-input down; sleep 1
+#  tap -> BTC detail
 input click; sleep 4
 #  scroll down -> actions list, click first item -> Buy $25 BTC (paper) -> confirm
 input down; sleep 3

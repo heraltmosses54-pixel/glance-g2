@@ -161,3 +161,38 @@ background). Verified against the SDK before implementing anything:
 - **Selection verified on all five rows** (sim test, box tops
   46/86/126/166/206px — exactly one 40px row pitch per scroll) and
   the tap opens the focused coin (SOL tapped → SOL/USD detail).
+
+## v2.1.1 — header/footer text vertically centred (owner spot)
+
+The owner spotted it on the v2.1 watchlist screenshot: the header
+("GLANCE 12:56 live") and footer ("Tap: open coin") text sat too low
+in their framed bands, nearly touching the bottom border line.
+
+- **Cause (measured):** the firmware's line slot is ~27px tall and
+  top-anchored. In a 30px band the glyphs landed at bandTop+12..+27,
+  i.e. 10px of air above and 1px below the bottom border. The SDK
+  exposes no vertical-alignment field on `TextContainerProperty`
+  (verified in the .d.ts: only geometry/border/padding/content),
+  so the only levers are band height and padding.
+- **Fix:** header/footer bands 30 -> 36px (list 224 -> 212, footer
+  y258 -> y252, 2px gaps kept), and header/footer `paddingLength`
+  4 -> 2, which lifts the glyphs 2px (the slot anchors to the padded
+  content top). Measured after the fix: header glyphs at +10..+25
+  (8px air above, 9px below), footer the same — centred within
+  0.5px, clear of both borders on every screen.
+- **Constraint that set 36, not 40:** the screen is 288px tall and
+  the list needs 212px (exactly 5 x 40px rows) for the host to keep
+  its uniform 40px row pitch. At 40px bands the list shrank to 204
+  and the host squeezed the middle (SOL) row to 32px — caught by
+  the sim test (box tops 48/88/128/160/200, steps 40/40/32/40).
+  At 36px bands the pitch is back to uniform 40 (box tops
+  46/86/126/166/206). The 1.5px of centring given up is invisible;
+  an 8px-short row is not.
+- **Other screens:** the full-screen text screens (coin detail,
+  portfolio, confirm, alert) have no header/footer bands; their
+  first line already sits 10px clear of the top border and their
+  last line 65px+ clear of the bottom border — no change needed.
+  List screens (alerts/actions) were already fine.
+- **Verified:** unit tests 0 failures; sim test 22/22 pass; demo
+  re-recorded (100.1s, final frame shows the bought BTC position
+  and the armed +1% alert).

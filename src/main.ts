@@ -1,4 +1,4 @@
-// Glance v2 — a crypto price ticker for Even Realities G2 smart glasses.
+// Glance v2.1 — a crypto price ticker for Even Realities G2 smart glasses.
 // Track 03 (Exchanges & Stocks). One glanceable screen per idea:
 // a watchlist home, one coin detail per tap, a portfolio total,
 // an alerts list, actions, and a confirm step before any paper trade.
@@ -9,14 +9,26 @@
 // State: paper portfolio + alerts, bridge storage first, localStorage
 // fallback. Paper trading only — no real money, ever.
 //
-// Typography note (see compare-v2.md): the G2 firmware renders every
-// text container in one fixed monospace-like face at one size — the SDK
-// exposes no font/size/colour control, and no webfont can reach the
-// glasses. The premium feel comes from discipline, not a font file:
-// one idea per screen, a hero price isolated by a blank line, tabular
-// formatting (adaptive decimals, signed 1-decimal %, padded aligned
-// columns), caps labels, clock + LIVE/STALE tag. The Bloomberg-terminal
-// school: when you cannot change the face, you win on grid and rhythm.
+// Typography note (see compare-v2.md and compare-clarity.md): the G2
+// firmware renders every text container in one fixed monospace-like
+// face at one size — the SDK exposes no font/size/colour control, and
+// no webfont can reach the glasses. The premium feel comes from
+// discipline, not a font file: one idea per screen, a hero price
+// isolated by a blank line, tabular formatting (adaptive decimals,
+// signed 1-decimal %, padded aligned columns), caps labels, clock +
+// LIVE/STALE tag. v2.1 adds the comfort layer: the watchlist is a
+// real list container (native outline-box focus + the list's own row
+// spacing), every text screen keeps at least one blank line, and the
+// portfolio is rebuilt around one calm hero figure. Background: the
+// owner asked for a full inversion (black text on green); the SDK has
+// no fill/background field on any container and image containers cap
+// at 288x144 with slow BLE refresh, so full inversion is impossible
+// on the glasses (see compare-clarity.md). The closest real treatment
+// is FRAMED BARS: every screen's containers carry a 2px border, so
+// the header, the list and the footer read as framed bands, and the
+// selected row gets the native outline box. Green-on-black stays the
+// ground; the frames are the colour. The Bloomberg-terminal school:
+// when you cannot change the face, you win on grid and rhythm.
 
 import {
   waitForEvenAppBridge,
@@ -58,6 +70,7 @@ import {
   alertFired,
   TRADE_USD,
   type StoreState,
+  type Holding,
   type Alert,
 } from './store'
 
@@ -81,9 +94,9 @@ let focusedAction = 0
 let actions: string[] = []
 let focusedAlert = 0
 let alertRows: string[] = []
-// Focused row on the watchlist: 0..4 coins, 5 portfolio, 6 alerts.
+// Focused row on the watchlist: 0..4, one per coin. The host list
+// widget owns the focus; the app only mirrors it from list events.
 let watchFocus = 0
-const WATCH_ROWS = COINS.length + 2
 
 // A trade the user tapped but has not confirmed yet. The price is frozen
 // at the moment of the tap, so the confirm screen always shows the exact
@@ -126,72 +139,134 @@ function dataTag(): string {
 }
 
 // ---------- watchlist (home screen) ----------
-// One text container, 8 lines — the most any 576x288 screen holds.
-// Columns are padded so prices line up: the tabular-mono discipline.
+// Three containers, like a framed page: a header text container
+// (clock + LIVE/STALE), a list container with the 5 coins only, and a
+// footer hint. The list's native outline box is the selection — the
+// clearest the glasses offer — and the list's own row spacing is the
+// air. Portfolio/Alerts no longer sit on this screen; they live on
+// their own screens, reached from the actions menu (coin detail ->
+// scroll -> actions -> Portfolio/Alerts). Prices refresh by rebuilding
+// the whole page each tick — with one guard (see refreshWatchlist):
+// the host resets list focus to 0 on a rebuild, so while the user is
+// browsing a non-zero row the tick only refreshes the header clock
+// and leaves the list alone. A tap right after a rebuild would
+// otherwise open the wrong coin.
 
-function watchRow(sym: string, focused: boolean): string {
-  const cursor = focused ? '>' : ' '
-  const q = quoteOf(sym)
-  const price = q ? fmtUsd(q.price) : '...'
-  const chg = q ? fmtPct(change24h(q)) : '--%'
-  return `${cursor} ${sym.padEnd(4)} ${price.padStart(10)} ${chg.padStart(6)}`
-}
-
-function watchlistText(): string {
-  const lines: string[] = [`GLANCE  ${fmtClock()}  ${dataTag()}`]
-  COINS.forEach((c, i) => lines.push(watchRow(c.symbol, watchFocus === i)))
-  const total = totalValue(store, priceMap())
-  const pnl = totalPnl(store, priceMap())
-  const pnlStr = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(0)}`
-  lines.push(`${watchFocus === 5 ? '>' : ' '} Portfolio ${fmtUsdExact(total).padStart(9)} ${pnlStr}`)
-  const nAlerts = Object.keys(store.alerts).length
-  lines.push(`${watchFocus === 6 ? '>' : ' '} Alerts (${nAlerts})`)
-  return lines.join('\n')
-}
-
-function watchlistContainer(): TextContainerProperty {
-  return new TextContainerProperty({
-    xPosition: 0,
-    yPosition: 0,
-    width: 576,
-    height: 288,
-    borderWidth: 0,
-    borderColor: 5,
-    paddingLength: 4,
-    containerID: TEXT_ID,
-    containerName: 'watchlist',
-    content: watchlistText(),
-    isEventCapture: 1,
+function watchItems(): string[] {
+  return COINS.map((c) => {
+    const q = quoteOf(c.symbol)
+    const price = q ? fmtUsd(q.price) : '...'
+    const chg = q ? fmtPct(change24h(q)) : '--%'
+    return `${c.symbol.padEnd(4)} ${price.padStart(10)} ${chg.padStart(6)}`
   })
+}
+
+function watchlistPage(): {
+  containerTotalNum: number
+  textObject: TextContainerProperty[]
+  listObject: ListContainerProperty[]
+} {
+  return {
+    containerTotalNum: 3,
+    textObject: [
+      new TextContainerProperty({
+        xPosition: 0,
+        yPosition: 0,
+        width: 576,
+        height: 30,
+        borderWidth: 2,
+        borderColor: 5,
+        paddingLength: 4,
+        containerID: TEXT_ID,
+        containerName: 'watchlist-header',
+        content: `GLANCE  ${fmtClock()}  ${watchTag()}`,
+        isEventCapture: 0,
+      }),
+      new TextContainerProperty({
+        xPosition: 0,
+        yPosition: 258,
+        width: 576,
+        height: 30,
+        borderWidth: 2,
+        borderColor: 5,
+        paddingLength: 4,
+        containerID: TEXT_ID + 10,
+        containerName: 'watchlist-footer',
+        content: 'Tap: open coin',
+        isEventCapture: 0,
+      }),
+    ],
+    listObject: [
+      new ListContainerProperty({
+        xPosition: 0,
+        yPosition: 32,
+        width: 576,
+        height: 224,
+        borderWidth: 2,
+        borderColor: 5,
+        paddingLength: 4,
+        containerID: LIST_ID,
+        containerName: 'watchlist',
+        itemContainer: new ListItemContainerProperty({
+          itemCount: COINS.length,
+          itemWidth: 568,
+          isItemSelectBorderEn: 1,
+          itemName: watchItems(),
+        }),
+        isEventCapture: 1,
+      }),
+    ],
+  }
 }
 
 async function showWatchlist(): Promise<void> {
   view = 'watchlist'
-  await bridge.rebuildPageContainer(
-    new RebuildPageContainer({ containerTotalNum: 1, textObject: [watchlistContainer()] }),
-  )
+  // A rebuild resets host list focus to 0; mirror that here so the
+  // JS focus never goes stale.
+  watchFocus = 0
+  listRenderedAt = Date.now()
+  await bridge.rebuildPageContainer(new RebuildPageContainer(watchlistPage()))
+}
+
+// When the watchlist rows were last rendered. The tick never rebuilds
+// the list while viewing it (see refreshWatchlist), so this ages while
+// the user browses — the header tag turns STALE at 60s so the screen
+// never claims fresh prices it does not show. Initialised to boot
+// time: the startup page renders the list immediately.
+let listRenderedAt = Date.now()
+
+/** Header tag for the watchlist: honest about what is DISPLAYED. */
+function watchTag(): string {
+  if (quotes.size === 0) return '...'
+  if (Date.now() - listRenderedAt > 60_000) return 'STALE'
+  return dataTag()
 }
 
 async function refreshWatchlist(): Promise<void> {
   if (view !== 'watchlist') return
-  await bridge.textContainerUpgrade(
-    new TextContainerUpgrade({
-      containerID: TEXT_ID,
-      containerName: 'watchlist',
-      content: watchlistText(),
-    }),
-  )
+  // Never rebuild the list while viewing it. Measured in the sim:
+  // rebuildPageContainer resets host list focus to 0, and scrolls
+  // arrive silently — the app only learns the focused index from the
+  // tap itself — so a tick rebuild mid-browse would make the next tap
+  // open the wrong coin. A targeted text upgrade does NOT reset focus
+  // (sim-verified: focus box stayed on its row across ticks), so the
+  // header clock + tag still tick while the list waits. Prices refresh
+  // whenever the screen is re-entered (showWatchlist rebuilds), and
+  // the coin detail always shows fresh data when opened.
+  await bridge
+    .textContainerUpgrade(
+      new TextContainerUpgrade({
+        containerID: TEXT_ID,
+        containerName: 'watchlist-header',
+        content: `GLANCE  ${fmtClock()}  ${watchTag()}`,
+      }),
+    )
+    .catch(() => {})
 }
 
 async function openWatchRow(): Promise<void> {
-  if (watchFocus < COINS.length) {
-    coinIndex = watchFocus
-    await showHome()
-  } else if (watchFocus === COINS.length) {
-    await showPortfolio()
-  } else {
-    await showAlerts()
-  }
+  coinIndex = Math.min(watchFocus, COINS.length - 1)
+  await showHome()
 }
 
 // ---------- coin detail ----------
@@ -230,7 +305,9 @@ function homeText(): string {
     const dir = a.direction === 'above' ? '>' : '<'
     lines.push(`Alert: ${dir} ${fmtUsd(a.level)} armed`)
   } else {
-    lines.push('Alert: none set')
+    // No alert armed: a blank line instead, so the hint below breathes
+    // and the screen never reads as a solid block of text.
+    lines.push('')
   }
   const n = freshNotice()
   if (n) lines.push(n)
@@ -244,7 +321,7 @@ function homeContainer(): TextContainerProperty {
     yPosition: 0,
     width: 576,
     height: 288,
-    borderWidth: 0,
+    borderWidth: 2,
     borderColor: 5,
     paddingLength: 4,
     containerID: TEXT_ID,
@@ -274,26 +351,37 @@ async function refreshHome(): Promise<void> {
 
 // ---------- portfolio ----------
 
+// Calm by construction: header, a blank, the Total as the hero
+// figure, PnL, Cash, then positions — always exactly 8 lines, always
+// with air around the total. Positions are capped so the screen never
+// overflows: 0 -> "No positions yet.", 1-2 -> both shown, 3+ -> first
+// + "+N more" (the full detail lives on each coin's screen).
 function portfolioText(): string {
-  const lines: string[] = ['PORTFOLIO']
   const prices = priceMap()
   const total = totalValue(store, prices)
   const pnl = totalPnl(store, prices)
-  lines.push(`Total ${fmtUsdExact(total)}`)
-  lines.push(`PnL ${pnl >= 0 ? '+' : '-'}${fmtUsdExact(Math.abs(pnl))} (paper)`)
-  lines.push(`Cash ${fmtUsdExact(store.cash)}`)
+  const lines: string[] = [
+    'PORTFOLIO',
+    '',
+    `Total ${fmtUsdExact(total)}`,
+    `PnL ${pnl >= 0 ? '+' : '-'}${fmtUsdExact(Math.abs(pnl))} (paper)`,
+    `Cash ${fmtUsdExact(store.cash)}`,
+  ]
   const held = Object.entries(store.holdings)
+  const positionLine = ([sym, h]: [string, Holding]): string => {
+    const price = prices.get(sym) ?? h.avgCost
+    const p = holdingPnl(store, sym, price)
+    const sign = p >= 0 ? '+' : '-'
+    return `${sym} ${h.qty.toFixed(4)} ~ ${fmtUsd(h.qty * price)} (${sign}$${Math.abs(p).toFixed(2)})`
+  }
   if (held.length === 0) {
-    lines.push('No positions yet.')
+    lines.push('', 'No positions yet.')
+  } else if (held.length === 1) {
+    lines.push('', positionLine(held[0]))
+  } else if (held.length === 2) {
+    lines.push(positionLine(held[0]), positionLine(held[1]))
   } else {
-    const shown = held.slice(0, 3)
-    for (const [sym, h] of shown) {
-      const price = prices.get(sym) ?? h.avgCost
-      const p = holdingPnl(store, sym, price)
-      const sign = p >= 0 ? '+' : '-'
-      lines.push(`${sym} ${h.qty.toFixed(4)} ~ ${fmtUsd(h.qty * price)} (${sign}$${Math.abs(p).toFixed(2)})`)
-    }
-    if (held.length > 3) lines.push(`+${held.length - 3} more position(s)`)
+    lines.push(positionLine(held[0]), `+${held.length - 1} more position(s)`)
   }
   lines.push('Tap: back to watchlist')
   return lines.join('\n')
@@ -305,7 +393,7 @@ function portfolioContainer(): TextContainerProperty {
     yPosition: 0,
     width: 576,
     height: 288,
-    borderWidth: 0,
+    borderWidth: 2,
     borderColor: 5,
     paddingLength: 4,
     containerID: TEXT_ID,
@@ -359,7 +447,7 @@ async function showAlerts(): Promise<void> {
           yPosition: 0,
           width: 576,
           height: 288,
-          borderWidth: 0,
+          borderWidth: 2,
           borderColor: 5,
           paddingLength: 4,
           containerID: LIST_ID,
@@ -404,6 +492,10 @@ function buildActions(): string[] {
   items.push('Alert above +5%')
   items.push('Alert below -5%')
   if (store.alerts[sym]) items.push('Clear alert')
+  // Portfolio and Alerts live here now: the watchlist shows coins
+  // only, so this menu is the way to every other screen.
+  items.push('Portfolio')
+  items.push('Alerts')
   items.push('Back to price')
   return items
 }
@@ -421,7 +513,7 @@ async function showActions(): Promise<void> {
           yPosition: 0,
           width: 576,
           height: 288,
-          borderWidth: 0,
+          borderWidth: 2,
           borderColor: 5,
           paddingLength: 4,
           containerID: LIST_ID,
@@ -451,6 +543,7 @@ async function showConfirm(): Promise<void> {
       : store.cash + Math.min(TRADE_USD, (store.holdings[pending.sym]?.qty ?? 0) * pending.price)
   const content = [
     'Confirm trade',
+    '',
     `${verb} $${TRADE_USD} ${pending.sym} @ ${fmtUsd(pending.price)}`,
     'Paper only - no real money',
     `Cash after: ${fmtUsdExact(cashAfter)}`,
@@ -466,7 +559,7 @@ async function showConfirm(): Promise<void> {
           yPosition: 0,
           width: 576,
           height: 288,
-          borderWidth: 0,
+          borderWidth: 2,
           borderColor: 5,
           paddingLength: 4,
           containerID: TEXT_ID,
@@ -504,6 +597,14 @@ async function runAction(index: number): Promise<void> {
   if (!label) return
   if (label === 'Back to price') {
     await showHome()
+    return
+  }
+  if (label === 'Portfolio') {
+    await showPortfolio()
+    return
+  }
+  if (label === 'Alerts') {
+    await showAlerts()
     return
   }
   if (!q) {
@@ -560,7 +661,7 @@ async function showAlert(): Promise<void> {
           yPosition: 0,
           width: 576,
           height: 288,
-          borderWidth: 0,
+          borderWidth: 2,
           borderColor: 5,
           paddingLength: 4,
           containerID: TEXT_ID,
@@ -632,10 +733,7 @@ try {
 }
 
 const created = await bridge.createStartUpPageContainer(
-  new CreateStartUpPageContainer({
-    containerTotalNum: 1,
-    textObject: [watchlistContainer()],
-  }),
+  new CreateStartUpPageContainer(watchlistPage()),
 )
 console.log('[glance] page created:', created === 0 ? 'success' : `failed (${created})`)
 
@@ -676,6 +774,11 @@ const unsubscribe = bridge.onEvenHubEvent((event) => {
   if (event.listEvent && typeof event.listEvent.currentSelectItemIndex === 'number') {
     if (view === 'actions') focusedAction = event.listEvent.currentSelectItemIndex
     if (view === 'alerts') focusedAlert = event.listEvent.currentSelectItemIndex
+    if (view === 'watchlist') {
+      // The tap itself carries the focused index — scrolls arrive
+      // silently, so this is the only moment the app learns it.
+      watchFocus = event.listEvent.currentSelectItemIndex
+    }
   }
 
   if (view === 'alert') {
@@ -714,18 +817,11 @@ const unsubscribe = bridge.onEvenHubEvent((event) => {
   }
 
   if (view === 'watchlist') {
+    // The host list widget owns focus and scrolling; the app only
+    // mirrors the focused index from list events and opens it on tap.
     if (isClick) {
       void openWatchRow()
       return
-    }
-    if (isScrollDown) {
-      watchFocus = (watchFocus + 1) % WATCH_ROWS
-      void refreshWatchlist()
-      return
-    }
-    if (isScrollUp) {
-      watchFocus = (watchFocus + WATCH_ROWS - 1) % WATCH_ROWS
-      void refreshWatchlist()
     }
     return
   }

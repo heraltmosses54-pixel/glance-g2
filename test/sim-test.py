@@ -79,16 +79,16 @@ def focus_box_top(png_bytes):
 
     The box's horizontal edges span nearly the full 576px width, so a
     row with >300 lit pixels is a box edge; text rows never exceed
-    ~150. Scan starts at y=36 to skip the watchlist header frame and
-    the list container's own top border. Returns None when no box is
-    visible.
+    ~150. Scan starts at y=44 to skip the watchlist header frame
+    (bottom border y34-35) and the list container's own top border
+    (y38-39). Returns None when no box is visible.
     """
     from PIL import Image
 
     img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
     w, h = img.size
     px = img.load()
-    for y in range(36, h):
+    for y in range(44, h):
         n = sum(1 for x in range(w) if px[x, y][3] > 0)
         if n > 300:
             return y
@@ -170,16 +170,21 @@ def main():
 
     # 1a. Selection is unmistakable on EVERY row: scroll through all 5
     # coins, screenshot each, and require the focus box to step down
-    # exactly one row pitch (40px) per scroll.
+    # by one uniform row pitch per scroll (the pitch itself is a host
+    # behaviour — v2.1 measured 40px at list height 224, and v2.1.1
+    # keeps the list at 212, exactly 5 x 40px rows, so the pitch must
+    # stay a uniform 40px; a shorter list squeezes the middle row,
+    # which this check catches).
     tops = [top0]
     for i in (1, 2, 3, 4):
         down()
         s = shot(f"1a-watchlist-focus-{i}")
         tops.append(focus_box_top(s))
+    steps = [tops[i + 1] - tops[i] for i in range(4)] if all(t is not None for t in tops) else []
     check("focus box marks every row",
           all(t is not None for t in tops)
-          and all(tops[i + 1] - tops[i] == 40 for i in range(4)),
-          f"box tops={tops}")
+          and len(set(steps)) == 1 and steps[0] == 40,
+          f"box tops={tops} steps={steps}")
 
     # 1b. Focus survival across the tick (the v2.1 no-rebuild rule):
     # focus is on row 4 (DOGE); wait for a 5s tick and confirm the
